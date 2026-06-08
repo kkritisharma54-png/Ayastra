@@ -2,6 +2,12 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
 from models import Product, BrassPrice, ScrapInventory
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 Base.metadata.create_all(bind=engine)
 
@@ -62,3 +68,54 @@ def scrap_recommendation(db: Session = Depends(get_db)):
         reason = f"Current price ₹{latest} is below average ₹{avg:.0f} — wait for better rate"
     
     return {"action": action, "reason": reason, "current_price": latest, "7day_avg": round(avg, 2)}
+
+
+
+# --- SELL ENDPOINT ---
+
+@app.post("/products/{product_id}/sell")
+def sell_product(product_id: int, quantity: int, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product.stock < quantity:
+        raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {product.stock}")
+    
+    product.stock -= quantity
+    db.commit()
+    
+    return {
+        "message": "Sale recorded",
+        "product": product.name,
+        "quantity_sold": quantity,
+        "remaining_stock": product.stock
+    }
+
+# --- LIVE BRASS PRICE FETCH ---
+
+@app.post("/brass-prices/fetch-live")
+def fetch_live_brass_price(db: Session = Depends(get_db)):
+    url = f"https://www.alphavantage.co/query?function=COPPER&interval=monthly&apikey={ALPHA_VANTAGE_KEY}"
+    
+    response = requests.get(url)
+    data = response.json()
+    
+    if "data" not in data:
+        raise HTTPException(status_code=500, detail="Failed to fetch price data")
+    
+    latest = data["data"][0]
+    price_usd_per_ton = float(latest["value"])
+    price_inr_per_kg = round((price_usd_per_ton / 1000) * 84, 2)
+    price = price_inr_per_kg
+    
+    new_price = BrassPrice(price_per_kg=price)
+    db.add(new_price)
+    db.commit()
+    
+    return {
+        "message": "Live price fetched and saved",
+        "price_per_kg": price,
+        "date": latest["date"]
+    }
