@@ -36,7 +36,7 @@ def get_db():
 # --- INVENTORY ENDPOINTS ---
 
 @app.get("/products")
-def get_all_products(db: Session = Depends(get_db)):
+def get_all_products(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return db.query(Product).all()
 
 @app.put("/products/{product_id}/stock")
@@ -64,7 +64,7 @@ def add_brass_price(price: float, db: Session = Depends(get_db)):
 # --- SCRAP OPTIMIZER ENDPOINT ---
 
 @app.get("/scrap/recommendation")
-def scrap_recommendation(db: Session = Depends(get_db)):
+def scrap_recommendation(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     prices = db.query(BrassPrice).order_by(BrassPrice.recorded_at).all()
     if len(prices) < 2:
         return {"recommendation": "Not enough data yet"}
