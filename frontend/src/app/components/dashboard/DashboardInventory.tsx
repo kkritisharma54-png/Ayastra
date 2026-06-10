@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Search, Filter, Plus, AlertTriangle, Package } from "lucide-react";
+import { getInventory, getInventoryKPIs } from "../../../api";
 
 const ITEMS = [
   { name: "Steel Billets 100mm", sku: "STL-B100", warehouse: "Mumbai Main", qty: 2840, unit: "MT", cost: "₹46,200/MT", val: "₹1.31Cr", status: "ok", reorder: 500 },
@@ -19,9 +20,84 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   critical: { label: "Critical", color: "#EF4444" },
 };
 
+interface KPI {
+  label: string;
+  value: string | number;
+  color: string;
+}
+
+interface InventoryItem {
+  id?: string;
+  name: string;
+  sku: string;
+  warehouse: string;
+  qty: number;
+  unit: string;
+  cost: string;
+  val: string;
+  status: "ok" | "low" | "critical";
+  reorder: number;
+}
+
 export function DashboardInventory() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [items, setItems] = useState<InventoryItem[]>(ITEMS);
+  const [kpis, setKpis] = useState<KPI[]>([
+    { label: "Total SKUs", value: "2,847", color: "#3B82F6" },
+    { label: "Inventory Value", value: "₹8.4Cr", color: "#F59E0B" },
+    { label: "Low Stock", value: "18", color: "#F59E0B" },
+    { label: "Critical", value: "3", color: "#EF4444" },
+  ]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [inventoryData, kpiData] = await Promise.all([
+          getInventory(),
+          getInventoryKPIs(),
+        ]);
+
+        if (inventoryData && Array.isArray(inventoryData)) {
+          setItems(inventoryData);
+        }
+
+        if (kpiData) {
+          const formattedKpis = [
+            {
+              label: "Total SKUs",
+              value: kpiData.total_skus || "2,847",
+              color: "#3B82F6",
+            },
+            {
+              label: "Inventory Value",
+              value: kpiData.total_value || "₹8.4Cr",
+              color: "#F59E0B",
+            },
+            {
+              label: "Low Stock",
+              value: kpiData.low_stock_count || "18",
+              color: "#F59E0B",
+            },
+            {
+              label: "Critical",
+              value: kpiData.critical_count || "3",
+              color: "#EF4444",
+            },
+          ];
+          setKpis(formattedKpis);
+        }
+      } catch (error) {
+        console.error("Failed to fetch inventory:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const filtered = ITEMS.filter((item) => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase()) || item.sku.toLowerCase().includes(search.toLowerCase());
@@ -35,7 +111,7 @@ export function DashboardInventory() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
           <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, color: "#e8eaf0", marginBottom: 4 }}>Inventory Manager</h2>
-          <p style={{ color: "#8892a4", fontSize: "0.85rem", fontFamily: "'Inter',sans-serif" }}>{ITEMS.length} SKUs across 4 warehouses</p>
+          <p style={{ color: "#8892a4", fontSize: "0.85rem", fontFamily: "'Inter',sans-serif" }}>{items.length} SKUs {loading ? "loading..." : "across warehouses"}</p>
         </div>
         <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
           style={{ display: "flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#050816", border: "none", borderRadius: 10, padding: "0.6rem 1.25rem", fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, cursor: "pointer" }}>
@@ -45,15 +121,10 @@ export function DashboardInventory() {
 
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
-        {[
-          { label: "Total SKUs", value: "2,847", color: "#3B82F6" },
-          { label: "Inventory Value", value: "₹8.4Cr", color: "#F59E0B" },
-          { label: "Low Stock", value: "18", color: "#F59E0B" },
-          { label: "Critical", value: "3", color: "#EF4444" },
-        ].map((k) => (
-          <div key={k.label} style={{ background: "rgba(11,17,32,0.9)", border: "1px solid rgba(59,130,246,0.1)", borderRadius: 12, padding: "1rem 1.1rem" }}>
+        {kpis.map((k) => (
+          <div key={k.label} style={{ background: "rgba(11,17,32,0.9)", border: "1px solid rgba(59,130,246,0.1)", borderRadius: 12, padding: "1rem 1.1rem", opacity: loading ? 0.6 : 1 }}>
             <div style={{ color: "#8892a4", fontSize: "0.7rem", fontFamily: "'Inter',sans-serif", marginBottom: 4 }}>{k.label}</div>
-            <div style={{ color: k.color, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: "1.4rem" }}>{k.value}</div>
+            <div style={{ color: k.color, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: "1.4rem" }}>{loading ? "..." : k.value}</div>
           </div>
         ))}
       </div>
