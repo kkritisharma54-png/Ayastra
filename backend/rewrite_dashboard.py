@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+content = '''import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { Package, ShoppingCart, TrendingUp, BarChart3, AlertTriangle, CheckCircle } from "lucide-react";
@@ -120,3 +120,8 @@ export function DashboardHome() {
     </div>
   );
 }
+'''
+
+with open('../frontend/src/app/components/dashboard/DashboardHome.tsx', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Done")
