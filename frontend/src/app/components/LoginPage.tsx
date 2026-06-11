@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router";
-import { login } from "../../api";
-
+import { signInWithGoogle, signInWithEmail } from "../../firebase";
 /* ─── Particle Globe (same engine as HeroSection) ─── */
 interface Particle {
   x: number; y: number; z: number;
@@ -202,16 +201,13 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const data = await login(email, password);
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("company_id", String(data.company_id || "1"));
-        localStorage.setItem("user_id", String(data.user_id || "1"));
-        localStorage.setItem("name", data.name || "");
-        navigate("/dashboard");
-      } else {
-        alert(data.detail || "Invalid credentials");
-      }
+      const user = await signInWithEmail(email, password);
+      const token = await user.getIdToken();
+      localStorage.setItem("token", token);
+      localStorage.setItem("name", user.displayName || user.email || "");
+      localStorage.setItem("user_id", user.uid);
+      localStorage.setItem("company_id", "1");
+      navigate("/dashboard");
     } catch (error) {
       console.error("Login failed:", error);
       alert("Login failed. Please check your credentials.");
@@ -220,9 +216,22 @@ export function LoginPage() {
     }
   };
 
-  const handleGoogle = () => {
+  const handleGoogle = async () => {
     setLoading(true);
-    setTimeout(() => { setLoading(false); navigate("/"); }, 1400);
+    try {
+      const user = await signInWithGoogle();
+      const token = await user.getIdToken();
+      localStorage.setItem("token", token);
+      localStorage.setItem("name", user.displayName || user.email || "");
+      localStorage.setItem("user_id", user.uid);
+      localStorage.setItem("company_id", "1");
+      navigate("/dashboard");
+    } catch (error) {
+      console.error("Google login failed:", error);
+      alert("Google login failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
