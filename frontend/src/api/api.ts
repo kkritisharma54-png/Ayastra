@@ -34,12 +34,14 @@ api.interceptors.response.use(
 // ============ AUTH ENDPOINTS ============
 export const login = async (email: string, password: string) => {
   const response = await api.post("/auth/login", { email, password });
-  if (response.data.access_token) {
-    localStorage.setItem("token", response.data.access_token);
+  if (response.data.token) {
+    localStorage.setItem("token", response.data.token);
+    localStorage.setItem("company_id", String(response.data.company_id || "1"));
+    localStorage.setItem("user_id", String(response.data.user_id || "1"));
+    localStorage.setItem("name", response.data.full_name || "");
   }
   return response.data;
 };
-
 // ============ DASHBOARD ENDPOINTS ============
 export const getDashboardSummary = async () => {
   const response = await api.get("/dashboard/summary");
@@ -52,6 +54,13 @@ export const getDashboardRevenueChart = async () => {
 };
 
 // ============ INVENTORY ENDPOINTS ============
+export const getInventory = async () => {
+  const companyId = localStorage.getItem("company_id") || "1";
+  const response = await api.get("/inventory", {
+    params: { company_id: companyId },
+  });
+  return response.data;
+};
 export const getInventoryKpis = async () => {
   const companyId = localStorage.getItem("company_id") || "1";
 

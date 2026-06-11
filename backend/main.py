@@ -177,19 +177,31 @@ def _generate_order_number(db: Session) -> str:
 
 @app.post("/auth/login", response_model=LoginResponse, tags=["Auth"])
 def login(body: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate user and return a token (stub — add JWT in production)."""
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    # TODO: verify hashed password
+    
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    if not pwd_context.verify(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    from jose import jwt
+    from datetime import datetime, timedelta
+    SECRET_KEY = "ayastra-secret-key"
+    token = jwt.encode(
+        {"sub": user.email, "exp": datetime.utcnow() + timedelta(hours=24)},
+        SECRET_KEY,
+        algorithm="HS256"
+    )
+    
     return LoginResponse(
-        token=f"stub-token-{user.id}",
+        token=token,
         user_id=user.id,
         full_name=user.full_name,
         role=user.role,
         company_id=user.company_id,
     )
-
 
 # ---------------------------------------------------------------------------
 # Dashboard — Home summary

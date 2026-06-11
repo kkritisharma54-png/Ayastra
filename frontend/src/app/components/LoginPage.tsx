@@ -202,8 +202,16 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
-      navigate("/");
+      const data = await login(email, password);
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("company_id", String(data.company_id || "1"));
+        localStorage.setItem("user_id", String(data.user_id || "1"));
+        localStorage.setItem("name", data.name || "");
+        navigate("/dashboard");
+      } else {
+        alert(data.detail || "Invalid credentials");
+      }
     } catch (error) {
       console.error("Login failed:", error);
       alert("Login failed. Please check your credentials.");
