@@ -68,10 +68,9 @@ export const getInventoryKPIs = async () => {
   return response.data;
 };
 export const createInventoryItem = async (item: any) => {
-  const response = await api.post("/inventory", item);
+  const response = await api.post("/inventory/simple", item);
   return response.data;
 };
-
 export const updateInventoryItem = async (itemId: string, updates: any) => {
   const response = await api.patch(`/inventory/${itemId}`, updates);
   return response.data;

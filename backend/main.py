@@ -111,6 +111,18 @@ class ProductCreate(BaseModel):
     description: Optional[str]
 
 # --- Inventory ---
+
+class SimpleInventoryCreate(BaseModel):
+    product_name: str
+    sku: Optional[str] = ""
+    warehouse_name: Optional[str] = "Main Warehouse"
+    quantity_on_hand: float
+    unit: Optional[str] = "MT"
+    unit_cost: Optional[float] = 0.0
+    reorder_point: Optional[float] = 20.0
+    status: Optional[str] = "ok"
+    company_id: int
+
 class InventoryCreate(BaseModel):
     product_id: int
     warehouse_id: int
@@ -364,6 +376,38 @@ def revenue_chart(company_id: int, days: int = 7, db: Session = Depends(get_db))
 # ---------------------------------------------------------------------------
 # Inventory
 # ---------------------------------------------------------------------------
+
+
+@app.post("/inventory/simple", tags=["Inventory"])
+def add_simple_inventory(body: SimpleInventoryCreate, db: Session = Depends(get_db)):
+    warehouse = db.query(Warehouse).filter(
+        Warehouse.company_id == body.company_id
+    ).first()
+    if not warehouse:
+        warehouse = Warehouse(
+            name=body.warehouse_name or "Main Warehouse",
+            company_id=body.company_id,
+        )
+        db.add(warehouse)
+        db.flush()
+    product = db.query(Product).filter(Product.name == body.product_name).first()
+    if not product:
+        import uuid
+        sku = body.sku or (body.product_name[:8].upper().replace(" ", "-") + "-" + str(uuid.uuid4())[:4].upper())
+        product = Product(name=body.product_name, sku=sku, unit=body.unit or "MT")
+        db.add(product)
+        db.flush()
+    item = InventoryItem(
+        product_id=product.id,
+        warehouse_id=warehouse.id,
+        quantity=body.quantity_on_hand,
+        cost_price=body.unit_cost or 0.0,
+        reorder_point=body.reorder_point or 20.0,
+    )
+    db.add(item)
+    db.commit()
+    return {"message": "SKU added successfully", "product": body.product_name}
+
 
 @app.get("/inventory", tags=["Inventory"])
 def list_inventory(
