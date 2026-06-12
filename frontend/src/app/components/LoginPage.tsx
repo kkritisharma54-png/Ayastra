@@ -220,11 +220,24 @@ export function LoginPage() {
     setLoading(true);
     try {
       const user = await signInWithGoogle();
-      const token = await user.getIdToken();
-      localStorage.setItem("token", token);
-      localStorage.setItem("name", user.displayName || user.email || "");
-      localStorage.setItem("user_id", user.uid);
-      localStorage.setItem("company_id", "1");
+      const firebaseToken = await user.getIdToken();
+      
+      // Register/login user in our backend
+      const response = await fetch("http://127.0.0.1:8000/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          full_name: user.displayName || user.email,
+          firebase_uid: user.uid,
+        }),
+      });
+      const data = await response.json();
+      
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("name", data.full_name);
+      localStorage.setItem("user_id", String(data.user_id));
+      localStorage.setItem("company_id", String(data.company_id));
       navigate("/dashboard");
     } catch (error) {
       console.error("Google login failed:", error);
