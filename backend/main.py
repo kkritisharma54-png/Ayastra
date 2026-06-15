@@ -46,6 +46,50 @@ def get_db():
 
 app = FastAPI(title="Ayastra API", version="2.0.0")
 
+# ---------------------------------------------------------------------------
+# Auth helper - get current user from JWT token
+# ---------------------------------------------------------------------------
+def get_current_user_id(authorization: str = None, db: Session = None):
+    """Extract and verify JWT token, return user."""
+    return None  # Optional auth for now
+
+def verify_token(token: str) -> dict:
+    """Verify JWT and return payload."""
+    from jose import jwt, JWTError
+    SECRET_KEY = os.getenv("SECRET_KEY", "fallback-change-in-production")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+def get_token_from_header(request: Request) -> str:
+    """Extract Bearer token from Authorization header."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return auth.split(" ")[1]
+
+def get_current_company_id(request: Request, db: Session = Depends(get_db)) -> int:
+    """Get company_id from JWT token."""
+    token = get_token_from_header(request)
+    payload = verify_token(token)
+    email = payload.get("sub")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user.company_id
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    """Get current user from JWT token."""
+    token = get_token_from_header(request)
+    payload = verify_token(token)
+    email = payload.get("sub")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
 # Simple in-memory rate limiter for login attempts
 login_attempts: dict = defaultdict(list)
 
@@ -519,11 +563,15 @@ def add_inventory(body: InventoryCreate, db: Session = Depends(get_db)):
 
 
 @app.patch("/inventory/{item_id}", tags=["Inventory"])
-def update_inventory(item_id: int, body: InventoryUpdate, db: Session = Depends(get_db)):
+def update_inventory(item_id: int, body: InventoryUpdate, request: Request, db: Session = Depends(get_db)):
     """Update quantity / cost / reorder for a specific inventory row."""
-    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+    current_user = get_current_user(request, db)
+    item = db.query(InventoryItem).join(Warehouse).filter(
+        InventoryItem.id == item_id,
+        Warehouse.company_id == current_user.company_id
+    ).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404, detail="Item not found or access denied")
     if body.quantity is not None:
         item.quantity = body.quantity
     if body.cost_price is not None:
@@ -536,10 +584,14 @@ def update_inventory(item_id: int, body: InventoryUpdate, db: Session = Depends(
 
 
 @app.delete("/inventory/{item_id}", tags=["Inventory"])
-def delete_inventory(item_id: int, db: Session = Depends(get_db)):
-    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+def delete_inventory(item_id: int, request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    item = db.query(InventoryItem).join(Warehouse).filter(
+        InventoryItem.id == item_id,
+        Warehouse.company_id == current_user.company_id
+    ).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404, detail="Item not found or access denied")
     db.delete(item)
     db.commit()
     return {"deleted": item_id}
@@ -700,14 +752,18 @@ def create_order(company_id: int, body: OrderCreate, db: Session = Depends(get_d
 
 
 @app.patch("/orders/{order_id}/status", tags=["Orders"])
-def update_order_status(order_id: int, body: OrderStatusUpdate, db: Session = Depends(get_db)):
+def update_order_status(order_id: int, body: OrderStatusUpdate, request: Request, db: Session = Depends(get_db)):
     """Update order status (pending → confirmed → processing → dispatched → delivered)."""
+    current_user = get_current_user(request, db)
     valid = ["pending", "confirmed", "processing", "dispatched", "delivered"]
     if body.status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of {valid}")
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.company_id == current_user.company_id
+    ).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Order not found or access denied")
     order.status = body.status
     db.commit()
     return {"id": order_id, "status": order.status}
@@ -952,7 +1008,10 @@ def analytics_health(company_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @app.get("/settings/profile/{user_id}", tags=["Settings"])
-def get_profile(user_id: int, db: Session = Depends(get_db)):
+def get_profile(user_id: int, request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -965,7 +1024,10 @@ def get_profile(user_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/settings/profile/{user_id}", tags=["Settings"])
-def update_profile(user_id: int, body: ProfileUpdate, db: Session = Depends(get_db)):
+def update_profile(user_id: int, body: ProfileUpdate, request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1002,7 +1064,10 @@ def update_notifications(user_id: int, body: SettingsUpdate, db: Session = Depen
 
 
 @app.get("/settings/company/{company_id}", tags=["Settings"])
-def get_company(company_id: int, db: Session = Depends(get_db)):
+def get_company(company_id: int, request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     c = db.query(Company).filter(Company.id == company_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -1010,7 +1075,10 @@ def get_company(company_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/settings/company/{company_id}", tags=["Settings"])
-def update_company(company_id: int, body: CompanyUpdate, db: Session = Depends(get_db)):
+def update_company(company_id: int, body: CompanyUpdate, request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     c = db.query(Company).filter(Company.id == company_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Company not found")
