@@ -7,7 +7,9 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 import os, math, httpx
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from collections import defaultdict
+import time
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, func
@@ -43,6 +45,22 @@ def get_db():
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Ayastra API", version="2.0.0")
+
+# Simple in-memory rate limiter for login attempts
+login_attempts: dict = defaultdict(list)
+
+def check_rate_limit(ip: str, max_attempts: int = 5, window: int = 300):
+    """Allow max 5 login attempts per IP per 5 minutes."""
+    now = time.time()
+    attempts = login_attempts[ip]
+    # Remove old attempts outside window
+    login_attempts[ip] = [t for t in attempts if now - t < window]
+    if len(login_attempts[ip]) >= max_attempts:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait 5 minutes."
+        )
+    login_attempts[ip].append(now)
 
 app.add_middleware(
     CORSMiddleware,
@@ -224,7 +242,7 @@ def google_auth(body: dict, db: Session = Depends(get_db)):
     from datetime import datetime, timedelta
     token = jwt.encode(
         {"sub": user.email, "exp": datetime.utcnow() + timedelta(hours=24)},
-        "ayastra-secret-key",
+        os.getenv("SECRET_KEY", "fallback-change-in-production"),
         algorithm="HS256"
     )
     
@@ -256,14 +274,19 @@ def signup(body: SignupRequest, db: Session = Depends(get_db)):
     db.commit()
     from jose import jwt
     from datetime import datetime, timedelta
-    token = jwt.encode({"sub": user.email, "exp": datetime.utcnow() + timedelta(hours=24)}, "ayastra-secret-key", algorithm="HS256")
+    token = jwt.encode({"sub": user.email, "exp": datetime.utcnow() + timedelta(hours=24)}, os.getenv("SECRET_KEY", "fallback-change-in-production"), algorithm="HS256")
     return {"message": "Account created", "token": token, "user_id": user.id, "company_id": company.id, "full_name": user.full_name}
 
 @app.post("/auth/login", response_model=LoginResponse, tags=["Auth"])
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(request.client.host)
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Block Google OAuth users from password login
+    if user.password_hash == "google-oauth":
+        raise HTTPException(status_code=401, detail="Please use Google Sign In for this account")
     
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -272,7 +295,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     
     from jose import jwt
     from datetime import datetime, timedelta
-    SECRET_KEY = "ayastra-secret-key"
+    SECRET_KEY = os.getenv("SECRET_KEY", "fallback-change-in-production")
     token = jwt.encode(
         {"sub": user.email, "exp": datetime.utcnow() + timedelta(hours=24)},
         SECRET_KEY,

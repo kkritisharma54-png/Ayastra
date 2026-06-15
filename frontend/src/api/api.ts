@@ -24,13 +24,15 @@ api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("token");
+      localStorage.clear();
       window.location.href = "/login";
+    }
+    if (error.response?.status === 429) {
+      alert("Too many attempts. Please wait 5 minutes.");
     }
     return Promise.reject(error);
   }
 );
-
 // ============ AUTH ENDPOINTS ============
 export const login = async (email: string, password: string) => {
   const response = await api.post("/auth/login", { email, password });
